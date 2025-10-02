@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Print Job Client Example</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { color: #333; margin-top: 0; }
+    h2 { color: #555; margin-top: 30px; }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #555;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+    }
+    button:hover { background: #0056b3; }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .response {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      margin-top: 15px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .job-list {
+      list-style: none;
+      padding: 0;
+    }
+    .job-item {
+      background: #f8f9fa;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      border-left: 4px solid #007bff;
+    }
+    .job-item.pending { border-left-color: #ffc107; }
+    .job-item.processing { border-left-color: #17a2b8; }
+    .job-item.completed { border-left-color: #28a745; }
+    .job-item.failed { border-left-color: #dc3545; }
+    .job-id { font-family: monospace; font-size: 11px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Print Job REST API Example</h1>
+    <p>This example demonstrates how to use the Print Jobs REST API.</p>
+
+    <h2>1. Submit Print Job</h2>
+    <div class="form-group">
+      <label>Printer Address (MAC or Serial Port):</label>
+      <input type="text" id="printerAddress" value="27:03:07:17:6e:82" placeholder="27:03:07:17:6e:82">
+    </div>
+    <div class="form-group">
+      <label>Printer Type:</label>
+      <select id="printerType">
+        <option value="bluetooth">Bluetooth</option>
+        <option value="serial">Serial</option>
+        <option value="capacitor-ble">Capacitor BLE</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Printer Model:</label>
+      <input type="text" id="printerModel" value="B1" placeholder="B1, D110, etc.">
+    </div>
+    <div class="form-group">
+      <label>Image File:</label>
+      <input type="file" id="imageFile" accept="image/*">
+    </div>
+    <div class="form-group">
+      <label>Density (1-5):</label>
+      <input type="number" id="density" value="3" min="1" max="20">
+    </div>
+    <div class="form-group">
+      <label>Quantity:</label>
+      <input type="number" id="quantity" value="1" min="1">
+    </div>
+    <button onclick="submitPrintJob()">Submit Print Job</button>
+    <div class="response" id="submitResponse"></div>
+
+    <h2>2. Get Print Jobs</h2>
+    <div class="form-group">
+      <label>Filter by Status:</label>
+      <select id="statusFilter">
+        <option value="">All</option>
+        <option value="pending">Pending</option>
+        <option value="processing">Processing</option>
+        <option value="completed">Completed</option>
+        <option value="failed">Failed</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </div>
+    <button onclick="getPrintJobs()">Get Print Jobs</button>
+    <button onclick="startPolling()">Start Auto-Polling (5s)</button>
+    <button onclick="stopPolling()">Stop Polling</button>
+    <ul class="job-list" id="jobList"></ul>
+
+    <h2>3. Update Print Job</h2>
+    <div class="form-group">
+      <label>Job ID:</label>
+      <input type="text" id="jobId" placeholder="Enter job ID from above">
+    </div>
+    <div class="form-group">
+      <label>New Status:</label>
+      <select id="newStatus">
+        <option value="pending">Pending</option>
+        <option value="processing">Processing</option>
+        <option value="completed">Completed</option>
+        <option value="failed">Failed</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Error Message (optional):</label>
+      <textarea id="errorMessage" placeholder="Error details if failed"></textarea>
+    </div>
+    <button onclick="updatePrintJob()">Update Job</button>
+    <div class="response" id="updateResponse"></div>
+  </div>
+
+  <script>
+    const API_BASE = 'https://qpnvgurndmrdyasjvsfn.supabase.co/functions/v1';
+    let pollingInterval = null;
+
+    async function submitPrintJob() {
+      const printerAddress = document.getElementById('printerAddress').value;
+      const printerType = document.getElementById('printerType').value;
+      const printerModel = document.getElementById('printerModel').value;
+      const imageFile = document.getElementById('imageFile').files[0];
+      const density = parseInt(document.getElementById('density').value);
+      const quantity = parseInt(document.getElementById('quantity').value);
+
+      if (!imageFile) {
+        alert('Please select an image file');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const response = await fetch(`${API_BASE}/submit-print-job`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              printerAddress,
+              printerType,
+              printerModel,
+              imageData: e.target.result,
+              printSettings: { density, quantity }
+            })
+          });
+
+          const data = await response.json();
+          document.getElementById('submitResponse').textContent = JSON.stringify(data, null, 2);
+
+          if (data.jobId) {
+            document.getElementById('jobId').value = data.jobId;
+          }
+        } catch (error) {
+          document.getElementById('submitResponse').textContent = `Error: ${error.message}`;
+        }
+      };
+      reader.readAsDataURL(imageFile);
+    }
+
+    async function getPrintJobs() {
+      const status = document.getElementById('statusFilter').value;
+      const url = status
+        ? `${API_BASE}/get-print-jobs?status=${status}`
+        : `${API_BASE}/get-print-jobs`;
+
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        const jobList = document.getElementById('jobList');
+        jobList.innerHTML = '';
+
+        if (data.jobs && data.jobs.length > 0) {
+          data.jobs.forEach(job => {
+            const li = document.createElement('li');
+            li.className = `job-item ${job.status}`;
+            li.innerHTML = `
+              <div><strong>Status:</strong> ${job.status}</div>
+              <div><strong>Printer:</strong> ${job.printer_model || 'Unknown'} (${job.printer_type})</div>
+              <div><strong>Address:</strong> ${job.printer_address}</div>
+              <div><strong>Created:</strong> ${new Date(job.created_at).toLocaleString()}</div>
+              ${job.error_message ? `<div><strong>Error:</strong> ${job.error_message}</div>` : ''}
+              <div class="job-id">ID: ${job.id}</div>
+            `;
+            li.onclick = () => {
+              document.getElementById('jobId').value = job.id;
+            };
+            jobList.appendChild(li);
+          });
+        } else {
+          jobList.innerHTML = '<li>No jobs found</li>';
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    }
+
+    async function updatePrintJob() {
+      const jobId = document.getElementById('jobId').value;
+      const status = document.getElementById('newStatus').value;
+      const errorMessage = document.getElementById('errorMessage').value;
+
+      if (!jobId) {
+        alert('Please enter a job ID');
+        return;
+      }
+
+      try {
+        const body = { id: jobId, status };
+        if (errorMessage) {
+          body.errorMessage = errorMessage;
+        }
+
+        const response = await fetch(`${API_BASE}/update-print-job`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        document.getElementById('updateResponse').textContent = JSON.stringify(data, null, 2);
+
+        getPrintJobs();
+      } catch (error) {
+        document.getElementById('updateResponse').textContent = `Error: ${error.message}`;
+      }
+    }
+
+    function startPolling() {
+      if (pollingInterval) return;
+
+      getPrintJobs();
+      pollingInterval = setInterval(getPrintJobs, 5000);
+    }
+
+    function stopPolling() {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+    }
+
+    getPrintJobs();
+  </script>
+</body>
+</html>
