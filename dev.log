@@ -1,0 +1,10 @@
+
+> niimblue@0.0.1 dev
+> vite --force
+
+Forced re-optimization of dependencies
+
+  VITE v5.4.20  ready in 728 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose

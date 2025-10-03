@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Print Job API Test Page</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .container {
+      max-width: 800px;
+    }
+    .job-item {
+      cursor: pointer;
+    }
+    .job-item:hover {
+      background-color: #f1f1f1;
+    }
+    .job-item.pending { border-left: 5px solid #ffc107; }
+    .job-item.processing { border-left: 5px solid #0dcaf0; }
+    .job-item.completed { border-left: 5px solid #198754; }
+    .job-item.failed { border-left: 5px solid #dc3545; }
+  </style>
+</head>
+<body>
+  <div class="container mt-5">
+    <div class="card">
+      <div class="card-header">
+        <h1 class="h4 mb-0">Print Job API Test Page</h1>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info">
+          <strong>How to use this page:</strong>
+          <ol>
+            <li>Fill out the form below to submit a print job.</li>
+            <li>Open the <a href="/agent" target="_blank">Print Agent page</a> in a new tab.</li>
+            <li>Click "Start Agent" on the agent page to begin processing jobs.</li>
+            <li>Monitor the status of your jobs on this page.</li>
+          </ol>
+        </div>
+
+        <h2 class="h5 mt-4">1. Submit Print Job</h2>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label for="printerAddress" class="form-label">Printer Address (MAC or Serial)</label>
+            <input type="text" class="form-control" id="printerAddress" value="27:03:07:17:6e:82">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label for="printerType" class="form-label">Printer Type</label>
+            <select id="printerType" class="form-select">
+              <option value="bluetooth" selected>Bluetooth</option>
+              <option value="serial">Serial</option>
+              <option value="capacitor-ble">Capacitor BLE</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label for="printerModel" class="form-label">Printer Model</label>
+            <input type="text" class="form-control" id="printerModel" value="B1">
+          </div>
+           <div class="col-md-6 mb-3">
+            <label for="imageFile" class="form-label">Image File</label>
+            <input type="file" class="form-control" id="imageFile" accept="image/*">
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label for="density" class="form-label">Density (1-20)</label>
+            <input type="number" class="form-control" id="density" value="3" min="1" max="20">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label for="quantity" class="form-label">Quantity</label>
+            <input type="number" class="form-control" id="quantity" value="1" min="1">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="submitPrintJob()">Submit Job</button>
+        <div id="submitResponse" class="mt-3"></div>
+
+        <hr class="my-4">
+
+        <h2 class="h5">2. Monitor Print Jobs</h2>
+         <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <button class="btn btn-secondary btn-sm" onclick="getPrintJobs()">Refresh</button>
+                <button id="pollBtn" class="btn btn-outline-secondary btn-sm" onclick="togglePolling()">Start Auto-Refresh</button>
+            </div>
+            <div class="col-md-4">
+                 <select id="statusFilter" class="form-select form-select-sm" onchange="getPrintJobs()">
+                    <option value="">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                </select>
+            </div>
+        </div>
+        <ul class="list-group" id="jobList"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '/functions/v1';
+    let pollingInterval = null;
+
+    async function submitPrintJob() {
+      const printerAddress = document.getElementById('printerAddress').value;
+      const printerType = document.getElementById('printerType').value;
+      const printerModel = document.getElementById('printerModel').value;
+      const imageFile = document.getElementById('imageFile').files[0];
+      const density = parseInt(document.getElementById('density').value);
+      const quantity = parseInt(document.getElementById('quantity').value);
+
+      if (!imageFile) {
+        alert('Please select an image file.');
+        return;
+      }
+
+      const submitResponseEl = document.getElementById('submitResponse');
+      submitResponseEl.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div>';
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const response = await fetch(`${API_BASE}/submit-print-job`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              printerAddress,
+              printerType,
+              printerModel,
+              imageData: e.target.result,
+              printSettings: { density, quantity }
+            })
+          });
+
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to submit job');
+          }
+
+          submitResponseEl.innerHTML = `<div class="alert alert-success">Job submitted successfully! ID: ${data.jobId}</div>`;
+          getPrintJobs();
+        } catch (error) {
+          submitResponseEl.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        }
+      };
+      reader.readAsDataURL(imageFile);
+    }
+
+    async function getPrintJobs() {
+      const status = document.getElementById('statusFilter').value;
+      const url = status
+        ? `${API_BASE}/get-print-jobs?status=${status}`
+        : `${API_BASE}/get-print-jobs`;
+
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        const jobList = document.getElementById('jobList');
+        jobList.innerHTML = '';
+
+        if (data.jobs && data.jobs.length > 0) {
+          data.jobs.forEach(job => {
+            const li = document.createElement('li');
+            li.className = `list-group-item job-item ${job.status}`;
+            li.innerHTML = `
+              <div class="d-flex w-100 justify-content-between">
+                <h6 class="mb-1">Job ID: ${job.id}</h6>
+                <small>${new Date(job.created_at).toLocaleString()}</small>
+              </div>
+              <p class="mb-1"><strong>Printer:</strong> ${job.printer_model || 'N/A'} (${job.printer_address})</p>
+              <small><strong>Status:</strong> <span class="badge bg-primary rounded-pill">${job.status}</span></small>
+              ${job.error_message ? `<div class="alert alert-danger mt-2 p-2 small"><strong>Error:</strong> ${job.error_message}</div>` : ''}
+            `;
+            jobList.appendChild(li);
+          });
+        } else {
+          jobList.innerHTML = '<li class="list-group-item">No jobs found.</li>';
+        }
+      } catch (error) {
+        alert(`Error fetching jobs: ${error.message}`);
+      }
+    }
+
+    function togglePolling() {
+        const pollBtn = document.getElementById('pollBtn');
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+            pollBtn.textContent = 'Start Auto-Refresh';
+            pollBtn.classList.remove('btn-success');
+            pollBtn.classList.add('btn-outline-secondary');
+        } else {
+            getPrintJobs();
+            pollingInterval = setInterval(getPrintJobs, 5000);
+            pollBtn.textContent = 'Stop Auto-Refresh';
+            pollBtn.classList.add('btn-success');
+            pollBtn.classList.remove('btn-outline-secondary');
+        }
+    }
+
+    // Initial load
+    getPrintJobs();
+  </script>
+</body>
+</html>
